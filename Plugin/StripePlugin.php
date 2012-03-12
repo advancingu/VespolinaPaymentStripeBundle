@@ -29,15 +29,15 @@ class StripePlugin extends AbstractPlugin
 
     public function __construct($apiKey)
     {
-
+        $this->apiKey = $apiKey;
     }
 
     public function createPlan(PlanInterface $plan, $retry)
     {
         $arguments = array(
             'id' => $plan->getId(),
-            'amount' => $plan->getAmount(),
-            'currency' => $plan->getCurrency() * 100,
+            'amount' => $plan->getAmount() * 100,
+            'currency' => $plan->getCurrency(),
             'interval' => self::$intervalMapping[$plan->getInterval()],
             'name' => $plan->getName(),
             'trial_period_days' => $plan->getTrialPeriodDays(),
@@ -46,9 +46,20 @@ class StripePlugin extends AbstractPlugin
         return $this->sendPlanRequest('create', $arguments);
     }
 
+    public function deletePlan(PlanInterface $plan, $retry)
+    {
+        $stripePlan = $this->retrievePlan($plan->getId(), $retry);
+        return $stripePlan->delete();
+    }
+
     public function processes($paymentSystemName)
     {
         return 'stripe' === $paymentSystemName;
+    }
+
+    public function retrievePlan($id, $retry)
+    {
+        return $this->sendPlanRequest('retrieve', $id);
     }
 
     public function isIndependentCreditSupported()
