@@ -14,7 +14,6 @@ class StripeTest extends \PHPUnit_Framework_TestCase
 
     public function testPlan()
     {
-        $this->markTestSkipped("Hey, isn't anybody gonna get me?");
         $properties = array(
             'id' => 'plugin-test-create-plan',
             'amount' => 2,
