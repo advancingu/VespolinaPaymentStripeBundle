@@ -50,7 +50,7 @@ class StripePlugin extends AbstractPlugin
                 $arguments = array(
                     'card' => $this->mapCreditCard($ed->get('creditCard')),
                 );
-                $customer = $this->sendCustomerRequest('create', $arguments)->__toArray();
+                $customer = $this->sendCustomerRequest('create', $arguments)->__toArray(true);
                 $chargeArguments['customer'] = $customer['id'];
                 $ed->set('providerCustomerId', $customer['id']);
                 $ed->set('customerResponse', $customer);
