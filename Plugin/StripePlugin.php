@@ -9,6 +9,7 @@ namespace Vespolina\Payment\StripeBundle\Plugin;
 
 use JMS\Payment\CoreBundle\Plugin\AbstractPlugin;
 use JMS\Payment\CoreBundle\Model\CreditCardProfileInterface;
+use JMS\Payment\CoreBundle\Model\FinancialTransactionInterface;
 use JMS\Payment\CoreBundle\Model\PlanInterface;
 use JMS\Payment\CoreBundle\Model\RecurringInstructionInterface;
 use JMS\Payment\CoreBundle\Model\RecurringTransactionInterface;
@@ -32,6 +33,38 @@ class StripePlugin extends AbstractPlugin
     public function __construct($apiKey)
     {
         $this->apiKey = $apiKey;
+    }
+
+    public function approveAndDeposit(FinancialTransactionInterface $transaction, $retry)
+    {
+        $chargeArguments = array(
+            'amount' => $transaction->getRequestedAmount() * 100,
+            'currency' => 'usd', // usd only accepted currency right now
+        );
+
+        $ed = $transaction->getExtendedData();
+        if ($ed->get('chargeTo') === 'customer') {
+            if ($ed->has('providerCustomerId')) {
+                $chargeArguments['customer'] = $ed->get('providerCustomerId');
+            } else {
+                $arguments = array(
+                    'card' => $this->mapCreditCard($ed->get('creditCard')),
+                );
+                $customer = $this->sendCustomerRequest('create', $arguments)->__toArray();
+                $chargeArguments['customer'] = $customer['id'];
+                $ed->set('providerCustomerId', $customer['id']);
+                $ed->set('customerResponse', $customer);
+            }
+        } elseif ($ed->get('chargeTo') === 'card') {
+            // TODO: one time on a card
+        }
+
+        $response = $this->sendChargeRequest('create', $chargeArguments);
+
+        $processable = $response->__toArray(true);
+        $transaction->setReferenceNumber($processable['id']);
+        $transaction->setProcessedAmount($processable['amount']/100);
+        $ed->set('response', $processable);
     }
 
     public function createPlan(PlanInterface $plan, $retry)
@@ -68,7 +101,7 @@ class StripePlugin extends AbstractPlugin
 
         $response = $this->sendCustomerRequest('create', $arguments);
 
-        // todo: obviously this is wrong, it should be configurable
+        // todo: transaction should be passed in, instructions used to create transaction
         $transaction = new \JMS\Payment\CoreBundle\Document\RecurringTransaction();
 
         $transaction->setAmount($instruction->getAmount());
@@ -102,25 +135,37 @@ class StripePlugin extends AbstractPlugin
 
     protected function createChargeToken(CreditCardProfileInterface $creditCard)
     {
-        $expiration = $creditCard->getExpiration();
-
         $arguments = array(
-            "card" => array(
-                "number" => $creditCard->getCardNumber('active'),
-                "exp_month" => $expiration['month'],
-                "exp_year" => $expiration['year'],
-                "cvc" => $creditCard->getCvv(),
-                'name' => $creditCard->getName(),
-                'address_line1' => $creditCard->getStreet1(),
-                'address_line2' => $creditCard->getStreet2(),
-                'address_zip' => $creditCard->getPostcode(),
-                'address_state' => $creditCard->getState(),
-                'address_country' => $creditCard->getCountry(),
-            ),
+            "card" => $this->mapCreditCard($creditCard),
             "currency" => "usd",
         );
-
         $response = $this->sendTokenRequest('create', $arguments);
+
+        return $response;
+    }
+
+    protected function mapCreditCard(CreditCardProfileInterface $creditCard)
+    {
+        $expiration = $creditCard->getExpiration();
+
+        return array(
+            "number" => $creditCard->getCardNumber('active'),
+            "exp_month" => $expiration['month'],
+            "exp_year" => $expiration['year'],
+            "cvc" => $creditCard->getCvv(),
+            'name' => $creditCard->getName(),
+            'address_line1' => $creditCard->getStreet1(),
+            'address_line2' => $creditCard->getStreet2(),
+            'address_zip' => $creditCard->getPostcode(),
+            'address_state' => $creditCard->getState(),
+            'address_country' => $creditCard->getCountry(),
+        );
+    }
+
+    protected function sendChargeRequest($method, $arguments)
+    {
+        \Stripe::setApiKey($this->apiKey);
+        $response = \Stripe_Charge::$method($arguments);
 
         return $response;
     }
