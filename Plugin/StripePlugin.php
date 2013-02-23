@@ -7,28 +7,24 @@
  */
 namespace Vespolina\Payment\StripeBundle\Plugin;
 
+use JMS\Payment\CoreBundle\Plugin\Exception\FinancialException;
+use JMS\Payment\CoreBundle\Plugin\Exception\BlockedException;
+
+use JMS\Payment\CoreBundle\Plugin\PluginInterface;
+
 use JMS\Payment\CoreBundle\Plugin\AbstractPlugin;
 use JMS\Payment\CoreBundle\Model\CreditCardProfileInterface;
 use JMS\Payment\CoreBundle\Model\FinancialTransactionInterface;
-use JMS\Payment\CoreBundle\Model\PlanInterface;
 use JMS\Payment\CoreBundle\Model\RecurringInstructionInterface;
 use JMS\Payment\CoreBundle\Model\RecurringTransactionInterface;
 
 class StripePlugin extends AbstractPlugin
 {
+    const ED_CARD_TOKEN = 'token';
+    const ED_DESCRIPTION = 'description';
+    const ED_RESPONSE = 'response';
+    
     protected $apiKey;
-
-    public static $intervalMapping = array(
-//        PlanInterface::INTERVAL_DAILY => 'DAY',
-//        PlanInterface::INTERVAL_WEEKLY => 'WEEK',
-//        PlanInterface::INTERVAL_BIWEEKLY => 'BIWK',
-//        PlanInterface::INTERVAL_SEMI_MONTHLY => 'SMMO',
-//        PlanInterface::INTERVAL_ANNUALLY => 'FRWK',
-        PlanInterface::INTERVAL_MONTHLY => 'month',
-//        PlanInterface::INTERVAL_QUARTERLY => 'QTER',
-//        PlanInterface::INTERVAL_ANNUALLY => 'SMYR',
-        PlanInterface::INTERVAL_ANNUALLY => 'year',
-    );
 
     public function __construct($apiKey)
     {
@@ -39,32 +35,94 @@ class StripePlugin extends AbstractPlugin
     {
         $chargeArguments = array(
             'amount' => $transaction->getRequestedAmount() * 100,
-            'currency' => 'usd', // usd only accepted currency right now
+            'currency' => $transaction->getPayment()->getPaymentInstruction()->getCurrency(),
         );
 
         $ed = $transaction->getExtendedData();
-        if ($ed->get('chargeTo') === 'customer') {
-            if ($ed->has('providerCustomerId')) {
-                $chargeArguments['customer'] = $ed->get('providerCustomerId');
-            } else {
-                $arguments = array(
-                    'card' => $this->mapCreditCard($ed->get('creditCard')),
-                );
-                $customer = $this->sendCustomerRequest('create', $arguments)->__toArray(true);
-                $chargeArguments['customer'] = $customer['id'];
-                $ed->set('providerCustomerId', $customer['id']);
-                $ed->set('customerResponse', $customer);
-            }
-        } elseif ($ed->get('chargeTo') === 'card') {
-            // TODO: one time on a card
+        if ($ed->has(self::ED_CARD_TOKEN)) {
+            $chargeArguments['card'] = $ed->get(self::ED_CARD_TOKEN);
+        }
+        if ($ed->has(self::ED_DESCRIPTION)) {
+            $chargeArguments['description'] = $ed->get(self::ED_DESCRIPTION);
         }
 
-        $response = $this->sendChargeRequest('create', $chargeArguments);
-
-        $processable = $response->__toArray(true);
-        $transaction->setReferenceNumber($processable['id']);
-        $transaction->setProcessedAmount($processable['amount']/100);
-        $ed->set('response', $processable);
+        try
+        {
+            /* @var $response \Stripe_Object */
+            $response = $this->sendChargeRequest('create', $chargeArguments);
+            
+            $processable = $response->__toArray(true);
+            
+            $transaction->setReferenceNumber($processable['id']);
+            $transaction->setProcessedAmount($processable['amount']/100);
+            
+            $ed->set(self::ED_RESPONSE, $processable);
+            
+            $transaction->setResponseCode(PluginInterface::RESPONSE_CODE_SUCCESS);
+            $transaction->setReasonCode(PluginInterface::REASON_CODE_SUCCESS);
+        }
+        catch (\Stripe_CardError $e)
+        {
+            $body = $e->getJsonBody();
+            $err  = $body['error'];
+            
+            $transaction->setReasonCode($err['code']);
+            $transaction->setResponseCode('Failed');
+            
+            $ex = new FinancialException(sprintf('Stripe %s: "%s"', $err['type'], $err['code']));
+            $ex->setFinancialTransaction($transaction);
+            
+            throw $ex;
+        }
+        catch (\Stripe_InvalidRequestError $e)
+        {
+            $body = $e->getJsonBody();
+            $err  = $body['error'];
+            
+            $transaction->setReasonCode($err['type']);
+            $transaction->setResponseCode(PluginInterface::REASON_CODE_INVALID);
+            
+            $ex = new FinancialException(sprintf('Stripe %s', $err['type']));
+            $ex->setFinancialTransaction($transaction);
+            
+            throw $ex;
+        }
+        catch (\Stripe_AuthenticationError $e)
+        {
+            $body = $e->getJsonBody();
+            $err  = $body['error'];
+            
+            $transaction->setReasonCode($err['type']);
+            $transaction->setResponseCode('Failed');
+            
+            $ex = new FinancialException(sprintf('Stripe %s', $err['type']));
+            $ex->setFinancialTransaction($transaction);
+            
+            throw $ex;
+        }
+        catch (\Stripe_ApiConnectionError $e)
+        {
+            $body = $e->getJsonBody();
+            $err  = $body['error'];
+            
+            $transaction->setReasonCode($err['type']);
+            $transaction->setResponseCode(PluginInterface::REASON_CODE_TIMEOUT);
+            
+            $ex = new BlockedException(sprintf('Stripe %s', $err['type']));
+            $ex->setFinancialTransaction($transaction);
+            
+            throw $ex;
+        }
+        catch (\Stripe_Error $e)
+        {
+            $transaction->setReasonCode('Stripe_Error');
+            $transaction->setResponseCode('Failed');
+            
+            $ex = new FinancialException(sprintf('Stripe Stripe_Error'));
+            $ex->setFinancialTransaction($transaction);
+            
+            throw $ex;
+        }
     }
 
     public function createPlan(PlanInterface $plan, $retry)
