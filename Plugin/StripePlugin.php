@@ -53,7 +53,7 @@ class StripePlugin extends AbstractPlugin
             
             $processable = $response->__toArray(true);
             
-            $transaction->setReferenceNumber($processable['id']);
+            $transaction->setReferenceNumber($response->__get('id'));
             $transaction->setProcessedAmount($processable['amount']/100);
             
             $ed->set(self::ED_RESPONSE, $processable);
