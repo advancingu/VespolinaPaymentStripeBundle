@@ -9,7 +9,7 @@
         "php": ">=5.3.2",
         "jms/payment-core-bundle": "master-dev",
         "stripe/stripe-php": "~1.7.15"
-
+        "symfony/monolog-bundle": "2.*",
     },
 
     "autoload": {

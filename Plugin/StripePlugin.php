@@ -26,9 +26,13 @@ class StripePlugin extends AbstractPlugin
     
     protected $apiKey;
 
-    public function __construct($apiKey)
+    /** @var $logger \Symfony\Bridge\Monolog\Logger */
+    private $logger;
+
+    public function __construct($apiKey, \Symfony\Bridge\Monolog\Logger $logger)
     {
         $this->apiKey = $apiKey;
+        $this->logger = $logger;
     }
 
     public function approveAndDeposit(FinancialTransactionInterface $transaction, $retry)
@@ -69,9 +73,12 @@ class StripePlugin extends AbstractPlugin
             $transaction->setReasonCode($err['code']);
             $transaction->setResponseCode('Failed');
             
-            $ex = new FinancialException(sprintf('Stripe %s: "%s"', $err['type'], $err['code']));
+            $message = sprintf('Stripe %s: "%s"', $err['type'], $err['code']);
+            $ex = new FinancialException($message);
             $ex->setFinancialTransaction($transaction);
             
+            $this->logger->err($message);
+
             throw $ex;
         }
         catch (\Stripe_InvalidRequestError $e)
@@ -82,9 +89,14 @@ class StripePlugin extends AbstractPlugin
             $transaction->setReasonCode($err['type']);
             $transaction->setResponseCode(PluginInterface::REASON_CODE_INVALID);
             
-            $ex = new FinancialException(sprintf('Stripe %s', $err['type']));
+            $message = sprintf('Stripe %s: "%s"', 
+                $err['type'], 
+                (key_exists('message', $err) ? $err['message'] : ''));
+            $ex = new FinancialException($message);
             $ex->setFinancialTransaction($transaction);
             
+            $this->logger->err($message);
+
             throw $ex;
         }
         catch (\Stripe_AuthenticationError $e)
@@ -95,9 +107,12 @@ class StripePlugin extends AbstractPlugin
             $transaction->setReasonCode($err['type']);
             $transaction->setResponseCode('Failed');
             
-            $ex = new FinancialException(sprintf('Stripe %s', $err['type']));
+            $message = sprintf('Stripe %s', $err['type']);
+            $ex = new FinancialException($message);
             $ex->setFinancialTransaction($transaction);
             
+            $this->logger->err($message);
+
             throw $ex;
         }
         catch (\Stripe_ApiConnectionError $e)
@@ -108,9 +123,12 @@ class StripePlugin extends AbstractPlugin
             $transaction->setReasonCode($err['type']);
             $transaction->setResponseCode(PluginInterface::REASON_CODE_TIMEOUT);
             
-            $ex = new BlockedException(sprintf('Stripe %s', $err['type']));
+            $message = sprintf('Stripe %s', $err['type']);
+            $ex = new BlockedException($message);
             $ex->setFinancialTransaction($transaction);
             
+            $this->logger->err($message);
+
             throw $ex;
         }
         catch (\Stripe_Error $e)
@@ -118,9 +136,12 @@ class StripePlugin extends AbstractPlugin
             $transaction->setReasonCode('Stripe_Error');
             $transaction->setResponseCode('Failed');
             
-            $ex = new FinancialException(sprintf('Stripe Stripe_Error'));
+            $message = sprintf('Stripe Stripe_Error');
+            $ex = new FinancialException($message);
             $ex->setFinancialTransaction($transaction);
             
+            $this->logger->err($message);
+
             throw $ex;
         }
     }
