@@ -23,6 +23,9 @@ class StripePlugin extends AbstractPlugin
     const ED_CARD_TOKEN = 'token';
     const ED_DESCRIPTION = 'description';
     const ED_RESPONSE = 'response';
+    /** Allows overriding the global private API key, e.g. with an OAuth access token.
+     * @see https://stripe.com/docs/connect/oauth#request-api-keys */
+    const ED_ACCESS_TOKEN = 'access_token';
     
     protected $apiKey;
 
@@ -49,11 +52,15 @@ class StripePlugin extends AbstractPlugin
         if ($ed->has(self::ED_DESCRIPTION)) {
             $chargeArguments['description'] = $ed->get(self::ED_DESCRIPTION);
         }
+        $accessToken = null;
+        if ($ed->has(self::ED_ACCESS_TOKEN)) {
+            $accessToken = $ed->get(self::ED_ACCESS_TOKEN);
+        }
 
         try
         {
             /* @var $response \Stripe_Object */
-            $response = $this->sendChargeRequest('create', $chargeArguments);
+            $response = $this->sendChargeRequest('create', $chargeArguments, $accessToken);
             
             $processable = $response->__toArray(true);
             
@@ -241,37 +248,43 @@ class StripePlugin extends AbstractPlugin
         );
     }
 
-    protected function sendChargeRequest($method, $arguments)
+    protected function sendChargeRequest($method, $arguments, $accessToken = null)
     {
-        \Stripe::setApiKey($this->apiKey);
-        $response = \Stripe_Charge::$method($arguments);
+        if ($accessToken === null) {
+            \Stripe::setApiKey($this->apiKey);
+        }
+        $response = \Stripe_Charge::$method($arguments, $accessToken);
 
         return $response;
     }
 
-    protected function sendCustomerRequest($method, $arguments)
+    protected function sendCustomerRequest($method, $arguments, $accessToken = null)
     {
-        \Stripe::setApiKey($this->apiKey);
-        $response = \Stripe_Customer::$method($arguments);
+        if ($accessToken === null) {
+            \Stripe::setApiKey($this->apiKey);
+        }
+        $response = \Stripe_Customer::$method($arguments, $accessToken);
 
         return $response;
     }
 
-    protected function sendPlanRequest($method, $arguments)
+    protected function sendPlanRequest($method, $arguments, $accessToken = null)
     {
-        \Stripe::setApiKey($this->apiKey);
-        $response = \Stripe_Plan::$method($arguments);
+        if ($accessToken === null) {
+            \Stripe::setApiKey($this->apiKey);
+        }
+        $response = \Stripe_Plan::$method($arguments, $accessToken);
 
         return $response;
     }
 
-    protected function sendTokenRequest($method, $arguments)
+    protected function sendTokenRequest($method, $arguments, $accessToken = null)
     {
-        \Stripe::setApiKey($this->apiKey);
-        $response = \Stripe_Token::$method($arguments);
+        if ($accessToken === null) {
+            \Stripe::setApiKey($this->apiKey);
+        }
+        $response = \Stripe_Token::$method($arguments, $accessToken);
 
         return $response;
     }
-
-
 }
