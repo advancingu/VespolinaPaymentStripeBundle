@@ -23,9 +23,14 @@ class StripePlugin extends AbstractPlugin
     const ED_CARD_TOKEN = 'token';
     const ED_DESCRIPTION = 'description';
     const ED_RESPONSE = 'response';
+    
     /** Allows overriding the global private API key, e.g. with an OAuth access token.
      * @see https://stripe.com/docs/connect/oauth#request-api-keys */
     const ED_ACCESS_TOKEN = 'access_token';
+    
+    /** Allows collecting fees for processing payments on behalf of a 3rd party.
+     * @see https://stripe.com/docs/connect/collecting-fees */
+    const ED_APPLICATION_FEE = 'application_fee';
     
     protected $apiKey;
 
@@ -51,6 +56,9 @@ class StripePlugin extends AbstractPlugin
         }
         if ($ed->has(self::ED_DESCRIPTION)) {
             $chargeArguments['description'] = $ed->get(self::ED_DESCRIPTION);
+        }
+        if ($ed->has(self::ED_APPLICATION_FEE)) {
+            $chargeArguments['application_fee'] = $ed->get(self::ED_APPLICATION_FEE);
         }
         $accessToken = null;
         if ($ed->has(self::ED_ACCESS_TOKEN)) {
