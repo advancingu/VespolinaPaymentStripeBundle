@@ -1,4 +1,5 @@
 <?php
+
 /**
  * (c) 2012 Vespolina Project http://www.vespolina-project.org
  *
@@ -7,37 +8,44 @@
  */
 namespace Vespolina\Payment\StripeBundle\Plugin;
 
-use JMS\Payment\CoreBundle\Plugin\Exception\FinancialException;
-use JMS\Payment\CoreBundle\Plugin\Exception\BlockedException;
-
-use JMS\Payment\CoreBundle\Plugin\PluginInterface;
+use Symfony\Component\HttpKernel\Log\LoggerInterface;
 
 use JMS\Payment\CoreBundle\Plugin\AbstractPlugin;
+use JMS\Payment\CoreBundle\Plugin\PluginInterface;
+use JMS\Payment\CoreBundle\Document\RecurringTransaction;
 use JMS\Payment\CoreBundle\Model\CreditCardProfileInterface;
+use JMS\Payment\CoreBundle\Plugin\Exception\BlockedException;
+use JMS\Payment\CoreBundle\Plugin\Exception\FinancialException;
 use JMS\Payment\CoreBundle\Model\FinancialTransactionInterface;
 use JMS\Payment\CoreBundle\Model\RecurringInstructionInterface;
 use JMS\Payment\CoreBundle\Model\RecurringTransactionInterface;
 
 class StripePlugin extends AbstractPlugin
 {
-    const ED_CARD_TOKEN = 'token';
+    const ED_CARD_TOKEN  = 'token';
     const ED_DESCRIPTION = 'description';
-    const ED_RESPONSE = 'response';
-    
-    /** Allows overriding the global private API key, e.g. with an OAuth access token.
-     * @see https://stripe.com/docs/connect/oauth#request-api-keys */
+    const ED_RESPONSE    = 'response';
+
+    /**
+     * Allows overriding the global private API key, e.g. with an OAuth access token.
+     * @see https://stripe.com/docs/connect/oauth#request-api-keys
+     */
     const ED_ACCESS_TOKEN = 'access_token';
-    
-    /** Allows collecting fees for processing payments on behalf of a 3rd party.
-     * @see https://stripe.com/docs/connect/collecting-fees */
+
+    /**
+     * Allows collecting fees for processing payments on behalf of a 3rd party.
+     * @see https://stripe.com/docs/connect/collecting-fees
+     */
     const ED_APPLICATION_FEE = 'application_fee';
-    
+
     protected $apiKey;
 
-    /** @var $logger \Symfony\Bridge\Monolog\Logger */
+    /**
+     * @var $logger LoggerInterface
+     */
     private $logger;
 
-    public function __construct($apiKey, \Symfony\Bridge\Monolog\Logger $logger)
+    public function __construct($apiKey, LoggerInterface $logger)
     {
         $this->apiKey = $apiKey;
         $this->logger = $logger;
@@ -46,11 +54,12 @@ class StripePlugin extends AbstractPlugin
     public function approveAndDeposit(FinancialTransactionInterface $transaction, $retry)
     {
         $chargeArguments = array(
-            'amount' => $transaction->getRequestedAmount() * 100,
+            'amount'   => $transaction->getRequestedAmount() * 100,
             'currency' => $transaction->getPayment()->getPaymentInstruction()->getCurrency(),
         );
 
         $ed = $transaction->getExtendedData();
+
         if ($ed->has(self::ED_CARD_TOKEN)) {
             $chargeArguments['card'] = $ed->get(self::ED_CARD_TOKEN);
         }
@@ -65,96 +74,90 @@ class StripePlugin extends AbstractPlugin
             $accessToken = $ed->get(self::ED_ACCESS_TOKEN);
         }
 
-        try
-        {
+        try {
             /* @var $response \Stripe_Object */
             $response = $this->sendChargeRequest('create', $chargeArguments, $accessToken);
-            
+
             $processable = $response->__toArray(true);
-            
+
             $transaction->setReferenceNumber($response->__get('id'));
             $transaction->setProcessedAmount($processable['amount']/100);
-            
+
             $ed->set(self::ED_RESPONSE, $processable);
-            
+
             $transaction->setResponseCode(PluginInterface::RESPONSE_CODE_SUCCESS);
             $transaction->setReasonCode(PluginInterface::REASON_CODE_SUCCESS);
-        }
-        catch (\Stripe_CardError $e)
-        {
+        } catch (\Stripe_CardError $e) {
             $body = $e->getJsonBody();
             $err  = $body['error'];
-            
+
             $transaction->setReasonCode($err['code']);
             $transaction->setResponseCode('Failed');
-            
+
             $message = sprintf('Stripe %s: "%s"', $err['type'], $err['code']);
             $ex = new FinancialException($message);
             $ex->setFinancialTransaction($transaction);
-            
+
             $this->logger->err($message);
 
             throw $ex;
-        }
-        catch (\Stripe_InvalidRequestError $e)
-        {
+        } catch (\Stripe_InvalidRequestError $e) {
             $body = $e->getJsonBody();
             $err  = $body['error'];
-            
+
             $transaction->setReasonCode($err['type']);
             $transaction->setResponseCode(PluginInterface::REASON_CODE_INVALID);
-            
-            $message = sprintf('Stripe %s: "%s"', 
-                $err['type'], 
-                (key_exists('message', $err) ? $err['message'] : ''));
+
+            $message = sprintf(
+                'Stripe %s: "%s"',
+                $err['type'],
+                (key_exists('message', $err) ? $err['message'] : '')
+            );
+
             $ex = new FinancialException($message);
             $ex->setFinancialTransaction($transaction);
-            
+
             $this->logger->err($message);
 
             throw $ex;
-        }
-        catch (\Stripe_AuthenticationError $e)
-        {
+        } catch (\Stripe_AuthenticationError $e) {
             $body = $e->getJsonBody();
             $err  = $body['error'];
-            
+
             $transaction->setReasonCode($err['type']);
             $transaction->setResponseCode('Failed');
-            
+
             $message = sprintf('Stripe %s', $err['type']);
             $ex = new FinancialException($message);
             $ex->setFinancialTransaction($transaction);
-            
+
             $this->logger->err($message);
 
             throw $ex;
-        }
-        catch (\Stripe_ApiConnectionError $e)
-        {
+        } catch (\Stripe_ApiConnectionError $e) {
             $body = $e->getJsonBody();
             $err  = $body['error'];
-            
+
             $transaction->setReasonCode($err['type']);
             $transaction->setResponseCode(PluginInterface::REASON_CODE_TIMEOUT);
-            
+
             $message = sprintf('Stripe %s', $err['type']);
+
             $ex = new BlockedException($message);
             $ex->setFinancialTransaction($transaction);
-            
+
             $this->logger->err($message);
 
             throw $ex;
-        }
-        catch (\Stripe_Error $e)
-        {
+        } catch (\Stripe_Error $e) {
             $transaction->setReasonCode('Stripe_Error');
             $transaction->setResponseCode('Failed');
-            
+
             $message = sprintf('Stripe Stripe_Error');
+
             $ex = new FinancialException($message);
             $ex->setFinancialTransaction($transaction);
-            
+
             $this->logger->err($message);
 
             throw $ex;
@@ -164,11 +167,11 @@ class StripePlugin extends AbstractPlugin
     public function createPlan(PlanInterface $plan, $retry)
     {
         $arguments = array(
-            'id' => $plan->getId(),
-            'amount' => $plan->getAmount() * 100,
-            'currency' => $plan->getCurrency(),
-            'interval' => self::$intervalMapping[$plan->getInterval()],
-            'name' => $plan->getName(),
+            'id'                => $plan->getId(),
+            'amount'            => $plan->getAmount() * 100,
+            'currency'          => $plan->getCurrency(),
+            'interval'          => self::$intervalMapping[$plan->getInterval()],
+            'name'              => $plan->getName(),
             'trial_period_days' => $plan->getTrialPeriodDays(),
         );
 
@@ -185,18 +188,18 @@ class StripePlugin extends AbstractPlugin
     function initializeRecurring(RecurringInstructionInterface $instruction, $retry)
     {
         $creditCardProfile = $instruction->getCreditCardProfile();
-        $response = $this->createChargeToken($creditCardProfile);
+        $response          = $this->createChargeToken($creditCardProfile);
 
         $arguments = array(
-            'card' => $response['id'],
-            'plan' => $instruction->getProviderPlanId(),
+            'card'  => $response['id'],
+            'plan'  => $instruction->getProviderPlanId(),
             'email' => $creditCardProfile->getEmail()
         );
 
         $response = $this->sendCustomerRequest('create', $arguments);
 
         // todo: transaction should be passed in, instructions used to create transaction
-        $transaction = new \JMS\Payment\CoreBundle\Document\RecurringTransaction();
+        $transaction = new RecurringTransaction();
 
         $transaction->setAmount($instruction->getAmount());
         $transaction->setBillingFrequency($instruction->getBillingFrequency());
@@ -205,6 +208,7 @@ class StripePlugin extends AbstractPlugin
         $transaction->setCurrency($instruction->getCurrency());
         $transaction->setPlanId($instruction->getProviderPlanId());
         $transaction->setProcessor('stripe');
+
         $processable = $response->__toArray(true);
         $transaction->setProcessorId($processable['id']);
         $transaction->addResponseData($processable);
@@ -230,9 +234,10 @@ class StripePlugin extends AbstractPlugin
     protected function createChargeToken(CreditCardProfileInterface $creditCard)
     {
         $arguments = array(
-            "card" => $this->mapCreditCard($creditCard),
+            "card"     => $this->mapCreditCard($creditCard),
             "currency" => "usd",
         );
+
         $response = $this->sendTokenRequest('create', $arguments);
 
         return $response;
@@ -243,15 +248,15 @@ class StripePlugin extends AbstractPlugin
         $expiration = $creditCard->getExpiration();
 
         return array(
-            "number" => $creditCard->getCardNumber('active'),
-            "exp_month" => $expiration['month'],
-            "exp_year" => $expiration['year'],
-            "cvc" => $creditCard->getCvv(),
-            'name' => $creditCard->getName(),
-            'address_line1' => $creditCard->getStreet1(),
-            'address_line2' => $creditCard->getStreet2(),
-            'address_zip' => $creditCard->getPostcode(),
-            'address_state' => $creditCard->getState(),
+            "number"          => $creditCard->getCardNumber('active'),
+            "exp_month"       => $expiration['month'],
+            "exp_year"        => $expiration['year'],
+            "cvc"             => $creditCard->getCvv(),
+            'name'            => $creditCard->getName(),
+            'address_line1'   => $creditCard->getStreet1(),
+            'address_line2'   => $creditCard->getStreet2(),
+            'address_zip'     => $creditCard->getPostcode(),
+            'address_state'   => $creditCard->getState(),
             'address_country' => $creditCard->getCountry(),
         );
     }
@@ -271,6 +276,7 @@ class StripePlugin extends AbstractPlugin
         if ($accessToken === null) {
             \Stripe::setApiKey($this->apiKey);
         }
+
         $response = \Stripe_Customer::$method($arguments, $accessToken);
 
         return $response;
@@ -281,6 +287,7 @@ class StripePlugin extends AbstractPlugin
         if ($accessToken === null) {
             \Stripe::setApiKey($this->apiKey);
         }
+
         $response = \Stripe_Plan::$method($arguments, $accessToken);
 
         return $response;
@@ -291,6 +298,7 @@ class StripePlugin extends AbstractPlugin
         if ($accessToken === null) {
             \Stripe::setApiKey($this->apiKey);
         }
+
         $response = \Stripe_Token::$method($arguments, $accessToken);
 
         return $response;
