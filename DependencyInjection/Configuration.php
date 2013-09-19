@@ -1,4 +1,5 @@
 <?php
+
 /**
  * (c) 2012 Vespolina Project http://www.vespolina-project.org
  *
@@ -8,8 +9,8 @@
 namespace Vespolina\Payment\StripeBundle\DependencyInjection;
 
 use Symfony\Component\Config\Definition\Builder\TreeBuilder;
-use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
 use Symfony\Component\Config\Definition\ConfigurationInterface;
+use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
 
 /**
  * @author Richard Shank <develop@zestic.com>
@@ -27,7 +28,7 @@ class Configuration implements ConfigurationInterface
         $rootNode = $treeBuilder->root('vespolina_payment_stripe');
         $rootNode
             ->children()
-                ->scalarNode('api_key')->cannotBeOverwritten()->isRequired()->cannotBeEmpty()->end()
+                ->scalarNode('api_key')->isRequired()->cannotBeEmpty()->end()
             ->end()
         ->end();
 
