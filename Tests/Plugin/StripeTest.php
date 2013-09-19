@@ -1,4 +1,5 @@
 <?php
+
 namespace Vespolina\Payment\StripeBundle\Tests\Plugin;
 
 use JMS\Payment\CoreBundle\Model\PlanInterface;
@@ -15,17 +16,17 @@ class StripeTest extends \PHPUnit_Framework_TestCase
     public function testPlan()
     {
         $properties = array(
-            'id' => 'plugin-test-create-plan',
-            'amount' => 2,
+            'id'       => 'plugin-test-create-plan',
+            'amount'   => 2,
             'currency' => 'usd',
             'interval' => PlanInterface::INTERVAL_MONTHLY,
-            'name' => 'Gold'
+            'name'     => 'Gold'
         );
         $plan = $this->createPlan($properties);
         $response = $this->plugin->createPlan($plan, false);
         $this->assertInstanceof('\Stripe_Object', $response);
-        // todo: changes response, then test for amount being set to 200
 
+        // todo: changes response, then test for amount being set to 200
         // todo: test error
         // todo: updatePlan, by default only the name can be updated. how do we handle other changes
 
